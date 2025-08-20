@@ -7,3 +7,4 @@ edition = "2024"
 tokio = { version = "1", features = ["full"] }
 reqwest = "0.12"
 scraper = "0.19"
+headless_chrome = "1.0.17"

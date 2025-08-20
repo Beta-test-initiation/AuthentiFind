@@ -1,89 +1,66 @@
-use reqwest;
+use headless_chrome::{Browser, LaunchOptions};
 use scraper::{Html, Selector};
-use std::fs;
+use std::error::Error;
+use std::time::Duration;
 
-#[derive(Debug)] //Print struct for debugging
+#[derive(Debug)]
 struct Item {
     name: String,
-    description:String,
+    description: String,
     price: String,
     url: String,
-} 
+}
 
+fn main() -> Result<(), Box<dyn Error>> {
+    // Correctly build the launch options, handling the Result with '?'
+    let options = LaunchOptions::default_builder()
+        .headless(false)
+        .build()?; // 
 
-#[tokio::main] //macro that transforms async fn main into a standard fn main that initializes the tokio runtime.
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("AuthentiFind Scraper Initialising ..");
+    let browser = Browser::new(options)?;
+    let tab = browser.new_tab()?;
 
-    
+    let url = "https://www.chrono24.com/search/index.htm?dosearch=true&watchTypes=U&searchexplain=false&query=Vintage+Rolex&sortorder=0";
+    println!("Navigating to URL: {}", url);
 
-    //Scraper logic
-    let url = "https://www.chrono24.com/search/index.htm?dosearch=true&watchTypes=U&searchexplain=false&query=Vintage+Rolex&watchCategories=&caseMaterials=&countryIds=&gender=&braceletMaterial=&maxAgeInDays=&priceFrom=&priceTo=&sortorder=0&STARTSEARCH=&SEARCHSTATS_BRAND_ID=&SEARCHSTATS_MATERIAL_ID=&_sourcePage=rWSP8lSk_G_1aChwEDxU090i6hCnSHazOAY8AbZk2diFM9tnfYCTVd2EnwqgBOeQLdCzSVnbcgqtHQJr-m8UeSO1bIS7w-EVmrpm6omRDxI%3D&__fp=Usz26zsYYzWgk40GSaqmfBPRyfAgVU2zvS2nGUzrKWAQEalFR1f8MqiVD96FgsBmxCU7SKsaInmhtUneUJLwkPVx8lhL_oZnxHMg7GbpZAh_KfQGbIe1iw40a4vMqGgk3eeWHRhNe8eJ3L6cNOYooN7oZ-0xs0QAhyohsGlEPCGBS4IYxXjFrDy2gZrpV_FsQsMNOJFMEkzGO64woBKA0D1nVBCAQjgv-j572TntUxwVJc2gWwhSd0nmgw0vkH9Y&__at=1755646160.5qtctiCrl_l5G9CYFGmcXJPtP6RN6cBtUQlr91OmGww.AXG1VdiTCWX8hb01_73_YtXKwnIn";
+    tab.navigate_to(url)?;
 
-    println!("Fetching URL: {}", url);
+    println!("Waiting for element to appear...");
 
-    // To appear more like a browser, we add a User-Agent header.
-    let client = reqwest::Client::new();
-    let response = client
-        .get(url)
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-        .send()
-        .await?;
-        
-    let body = response.text().await?;
+    // Wait for the element with a longer, custom timeout
+    tab.wait_for_element_with_custom_timeout(
+        "a.js-article-item",
+        Duration::from_secs(30), // Wait for up to 30 seconds
+    )?;
 
-    // --- DEBUG STEP: SAVE THE HTML TO A FILE ---
-    fs::write("output.html", &body)?;
-    println!("✅ HTML content saved to output.html");
-    // --- END DEBUG STEP ---
+    println!("Element found! Getting page content...");
+    let html = tab.get_content()?;
 
+    let document = Html::parse_document(&html);
 
-    let document = Html::parse_document(&body);
-
-
-    //Define selectors 
+    // selectors and parsing logic 
     let item_container_selector = Selector::parse("a.js-article-item").unwrap();
     let title_selector = Selector::parse(".text-bold.text-ellipsis").unwrap();
     let description_selector = Selector::parse(".text-ellipsis.m-b-2").unwrap();
-    let price_selector = Selector::parse(".d-flex .text-bold").unwrap(); // Target the <strong> tag inside the price div
-
-
-    let mut items: Vec<Item> = Vec::new(); //mutable vector of items
+    let price_selector = Selector::parse(".d-flex .text-bold").unwrap();
+    
+    let mut items: Vec<Item> = Vec::new();
 
     for element in document.select(&item_container_selector) {
-        let title = element 
-                .select(&title_selector)
-                .next()
-                .map_or("N/A".to_string(), |el| el.text().collect::<String>().trim().to_string());
-    
-        let description = element
-            .select(&description_selector)
-            .next()
-            .map_or("N/A".to_string(), |el| el.text().collect::<String>().trim().to_string());
-    
-        let price = element
-            .select(&price_selector)
-            .next()
-            .map_or("N/A".to_string(), |el| el.text().collect::<String>().trim().to_string());
+        let title = element.select(&title_selector).next().map_or("N/A".to_string(), |el| el.text().collect::<String>().trim().to_string());
+        let description = element.select(&description_selector).next().map_or("N/A".to_string(), |el| el.text().collect::<String>().trim().to_string());
+        let price = element.select(&price_selector).next().map_or("N/A".to_string(), |el| el.text().collect::<String>().trim().to_string());
+        let item_url = element.value().attr("href").map_or("N/A".to_string(), |href| format!("https://www.chrono24.com{}", href));
         
-        // Extract the URL from the container's 'href' attribute
-        let item_url = element
-            .value()
-            .attr("href")
-            .map_or("N/A".to_string(), |href| format!("https://www.chrono24.com{}", href));
-        
-        items.push(Item {
-            name: title,
-            description,
-            price,
-            url: item_url,
-        });
-    
+        items.push(Item { name: title, description, price, url: item_url });
     }
 
-    println!("Found {} items.", items.len());
-    println!("{:#?}", items);
+    if items.is_empty() {
+        println!("⚠️ Found 0 items even after waiting. The page may be blocked.");
+    } else {
+        println!("✅ Found {} items.", items.len());
+        println!("{:#?}", items);
+    }
 
     Ok(())
-
 }
