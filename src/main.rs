@@ -2,6 +2,8 @@ use headless_chrome::{Browser, LaunchOptions};
 use scraper::{Html, Selector};
 use std::error::Error;
 use std::time::Duration;
+use urlencoding; // <-- Import the 'urlencoding' crate
+
 
 #[derive(Debug)]
 struct Item {
@@ -20,10 +22,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     let browser = Browser::new(options)?;
     let tab = browser.new_tab()?;
 
-    let url = "https://www.chrono24.com/search/index.htm?dosearch=true&watchTypes=U&searchexplain=false&query=Vintage+Rolex&sortorder=0";
+    let search_term = "Vintage Rolex";
+    let encoded_search_term = urlencoding::encode(search_term);
+
+     let url = format!(
+        "https://www.chrono24.com/search/index.htm?dosearch=true&query={}&sortorder=0",
+        encoded_search_term
+    );
+
     println!("Navigating to URL: {}", url);
 
-    tab.navigate_to(url)?;
+    tab.navigate_to(&url)?;
 
     println!("Waiting for element to appear...");
 
@@ -56,9 +65,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     if items.is_empty() {
-        println!("⚠️ Found 0 items even after waiting. The page may be blocked.");
+        println!("Found 0 items even after waiting. The page may be blocked.");
     } else {
-        println!("✅ Found {} items.", items.len());
+        println!("Found {} items.", items.len());
         println!("{:#?}", items);
     }
 
